@@ -22,9 +22,8 @@
 // texto: o Kotlin entrega os cues (nativeLegenda) e o app desenha. Legenda
 // EXTERNA (OpenSubtitles/addon) nem passa por aqui: legenda.c baixa e desenha.
 //
-// TODO: ASS com libass (NV_ASS_LIBASS nao esta definido nesta fase, entao a
-// sonda MKV segue "nao ha sonda", como no .tpk); capitulos do MKV para
-// video_creditos; passthrough fino de AC3/EAC3 por AudioCapabilities.
+// ASS/SSA uses the shared MKV collector + libass overlay. Media3 supplies
+// plain text only as a fallback when the server cannot provide MKV ranges.
 #ifdef NV_ANDROID
 #include "marco.h"
 #include "streams.h"
@@ -33,6 +32,9 @@
 #include "ajustes.h"
 #include "xtream.h"
 #include "capmkv.h"
+#include "mkv.h"
+#include "faixasmkv.h"
+#include <stdlib.h>
 #include "audioinfo.h"
 #include "video_reconexao.h"
 #include "idioma.h"
@@ -341,6 +343,34 @@ static Uint32 legAte;
 
 static char urlAtual[NV_MEDIA_URL_MAX];
 static char cabecalhos[2048];
+#ifdef NV_ASS_LIBASS
+static pthread_mutex_t mkvTrava = PTHREAD_MUTEX_INITIALIZER;
+static unsigned mkvGeracao;
+static int mkvEstado = 2; // 0 pending, 1 completed, 2 unavailable
+static int mkvIniciado, mkvN;
+static MkvFaixa mkvFx[MKV_MAX_FAIXAS];
+static int mkvIds[NV_FAIXA_MAX], mkvIdsNovos[NV_FAIXA_MAX];
+typedef struct { char url[NV_MEDIA_URL_MAX]; unsigned geracao; } AndroidMkvPedido;
+static void androidMkvZerar(int indisponivel) {
+  pthread_mutex_lock(&mkvTrava);
+  mkvGeracao++; mkvEstado = indisponivel ? 2 : 0; mkvIniciado = mkvN = 0;
+  pthread_mutex_unlock(&mkvTrava);
+}
+static void *androidMkvLer(void *arg) {
+  AndroidMkvPedido *p = arg;
+  MkvFaixa fx[MKV_MAX_FAIXAS];
+  int n = mkv_faixas(p->url, fx, MKV_MAX_FAIXAS);
+  pthread_mutex_lock(&mkvTrava);
+  if (p->geracao == mkvGeracao) {
+    mkvN = n;
+    if (n > 0) memcpy(mkvFx, fx, n * sizeof *fx);
+    mkvEstado = n > 0 ? 1 : 2;
+  }
+  pthread_mutex_unlock(&mkvTrava);
+  free(p);
+  return NULL;
+}
+#endif
 // ULTIMA JANELA ENTREGUE ao Kotlin (dedupe de reenvio; ver janelaSeMudou, la
 // embaixo, onde a regra vive junto das funcoes que enviam).
 static int envX, envY, envW, envH, envEnc, temEnv;
@@ -439,7 +469,7 @@ static int nNovasA, nNovasL;
 // MUSIC_AND_SOUND (SDH); `nome` = Format.label (o Name da faixa do MKV).
 // `mime`/`canais` (#293): codec e canais da faixa de audio.
 JNIEXPORT void JNICALL Java_space_nuvio_nativelegacy_NvPlayer_nativeFaixa(JNIEnv *env, jclass cls, jint tipo, jint idx, jstring lingua,
-                                                                       jint flags, jstring nome, jstring mime, jint canais) {
+                                                                       jint flags, jstring nome, jstring mime, jint canais, jint mkvNumero) {
   VideoFaixa *f;
   char l[16], nm[48], mm[24], ai[40];
   (void)cls;
@@ -449,13 +479,20 @@ JNIEXPORT void JNICALL Java_space_nuvio_nativelegacy_NvPlayer_nativeFaixa(JNIEnv
   else           { if (nNovasL >= MAX_FAIXAS) return; f = &novasL[nNovasL++]; }
   memset(f, 0, sizeof *f);
   f->numero = idx;
-  f->ordinalMkv = tipo ? idx : -1;
+  f->ordinalMkv = -1;
+#ifdef NV_ASS_LIBASS
+  if (tipo && idx >= 0 && idx < NV_FAIXA_MAX) mkvIdsNovos[idx] = mkvNumero;
+#else
+  (void)mkvNumero;
+#endif
   if (strcmp(l, "und") && strcmp(l, "unknown") && strcmp(l, "zxx")) snprintf(f->idioma, sizeof f->idioma, "%s", l);
   if (f->idioma[0]) snprintf(f->rotulo, sizeof f->rotulo, "%s", i18n(ling_nome(f->idioma)));
   else snprintf(f->rotulo, sizeof f->rotulo, "%s %d", i18n(tipo ? "Legenda" : "Áudio"),
                 tipo ? nNovasL : nNovasA);
   if (tipo) {
     const char *r;
+    deJString(env, mime, mm, sizeof mm);
+    if (!strcmp(mm, "text/x-ssa")) snprintf(f->codec, sizeof f->codec, "%s", "S_TEXT/ASS");
     // O nome de exibicao nao passa pelo buffer curto usado pela classificacao.
     // deJString preserva UTF-8 completo, inclusive emoji, ate o limite do campo.
     deJString(env, nome, f->nome, sizeof f->nome);
@@ -488,9 +525,18 @@ JNIEXPORT void JNICALL Java_space_nuvio_nativelegacy_NvPlayer_nativeFaixasFim(JN
   memcpy(faixaAudio, novasA, sizeof novasA);
   audioAtual = selAudio >= 0 ? selAudio : 0;
   if (!releitura) {
+#ifdef NV_ASS_LIBASS
+    pthread_mutex_lock(&mkvTrava);
+#endif
     memcpy(faixaLeg, novasL, sizeof novasL);
+#ifdef NV_ASS_LIBASS
+    memcpy(mkvIds, mkvIdsNovos, sizeof mkvIds);
+#endif
     legAtual = -1;   // o Kotlin sobe com legenda desligada; quem liga e o app (faixas.c)
     nLeg = nNovasL;
+#ifdef NV_ASS_LIBASS
+    pthread_mutex_unlock(&mkvTrava);
+#endif
   }
   nAudio = nNovasA;
   nNovasA = nNovasL = 0;
@@ -921,6 +967,9 @@ int video_tocar_retomada(const char *u, double segundos, double pct) {
     ? (int)(pct * 100.0 + 0.5) : 0;
   snprintf(urlAtual, sizeof urlAtual, "%s", u ? u : "");
   if (limited) capmkv_zerar(); else capmkv_iniciar(urlAtual);
+#ifdef NV_ASS_LIBASS
+  androidMkvZerar(limited || !urlAtual[0]);
+#endif
   nv_recon_zerar(&recon);
   reconPermitida = reconProxima; reconProxima = 0;
   reconIniciou = 0; reconErroPend = 0;
@@ -1060,6 +1109,9 @@ void video_bombear(void) {
   }
 }
 void video_parar(void) {
+#ifdef NV_ASS_LIBASS
+  androidMkvZerar(1); // in-flight probes cannot publish into the next title
+#endif
   novaRetomada(-1);
   capmkv_zerar();   // fio de capitulos em voo nao alimenta o proximo titulo
   nv_recon_zerar(&recon);
@@ -1242,10 +1294,52 @@ int  video_n_legenda(void) { return nLeg; }
 const VideoFaixa *video_audio(int i) { return (i >= 0 && i < nAudio) ? &faixaAudio[i] : 0; }
 const VideoFaixa *video_legenda(int i) { return (i >= 0 && i < nLeg) ? &faixaLeg[i] : 0; }
 int  video_legenda_ordinal_mkv(int i) { return (i >= 0 && i < nLeg) ? faixaLeg[i].ordinalMkv : -1; }
-// "Nao ha sonda": sem libass (NV_ASS_LIBASS) a sonda de MKV nao serve a nada.
-// TODO quando o libass entrar: sonda real, como video.c.
-int  video_mkv_sondado(void) { return 2; }
-void video_sondar_mkv_agora(void) {}
+#ifdef NV_ASS_LIBASS
+static int androidTemAss(void) {
+  int found = 0;
+  pthread_mutex_lock(&mkvTrava);
+  for (int i = 0; i < nLeg && !found; i++)
+    found = faixasmkv_overlay(faixaLeg[i].codec, 0);
+  pthread_mutex_unlock(&mkvTrava);
+  return found;
+}
+#endif
+void video_sondar_mkv_agora(void) {
+#ifdef NV_ASS_LIBASS
+  if (!androidTemAss()) return; // no extra Range for ordinary SRT/VTT playback
+  pthread_mutex_lock(&mkvTrava);
+  if (mkvEstado == 0 && !mkvIniciado && nLeg > 0) {
+    AndroidMkvPedido *p = malloc(sizeof *p);
+    pthread_t thread;
+    if (p) {
+      snprintf(p->url, sizeof p->url, "%s", urlAtual);
+      p->geracao = mkvGeracao;
+      if (!pthread_create(&thread, NULL, androidMkvLer, p)) {
+        mkvIniciado = 1; pthread_detach(thread);
+      } else { free(p); mkvEstado = 2; }
+    } else mkvEstado = 2;
+  }
+  pthread_mutex_unlock(&mkvTrava);
+#endif
+}
+int video_mkv_sondado(void) {
+#ifdef NV_ASS_LIBASS
+  int estado;
+  if (!androidTemAss()) return 2;
+  video_sondar_mkv_agora();
+  pthread_mutex_lock(&mkvTrava);
+  estado = mkvEstado;
+  if (estado == 1) for (int i = 0; i < nLeg; i++) {
+    int idx = faixaLeg[i].numero;
+    if (idx >= 0 && idx < NV_FAIXA_MAX)
+      faixasmkv_por_numero(&faixaLeg[i], mkvIds[idx], mkvFx, mkvN);
+  }
+  pthread_mutex_unlock(&mkvTrava);
+  return estado;
+#else
+  return 2;
+#endif
+}
 int  video_audio_atual(void) { return audioAtual; }
 int  video_legenda_atual(void) { return legAtual; }
 void video_escolher_audio(int i) {

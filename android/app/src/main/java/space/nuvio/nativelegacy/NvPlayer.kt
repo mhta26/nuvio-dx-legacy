@@ -167,8 +167,8 @@ object NvPlayer {
     @JvmStatic external fun nativeEvento(tipo: Int, a: Int, b: Int)
     // flags (#287): 1 = forcada (SELECTION_FLAG_FORCED), 2 = SDH
     // (ROLE_FLAG_DESCRIBES_MUSIC_AND_SOUND); nome = Format.label.
-    // mime/canais (#293): codec e canais da faixa de audio.
-    @JvmStatic external fun nativeFaixa(tipo: Int, idx: Int, lingua: String, flags: Int, nome: String, mime: String, canais: Int)
+    // mime/canais: audio format; mkvNumero: exact Matroska TrackNumber for text.
+    @JvmStatic external fun nativeFaixa(tipo: Int, idx: Int, lingua: String, flags: Int, nome: String, mime: String, canais: Int, mkvNumero: Int)
     @JvmStatic external fun nativeFaixasFim(selAudio: Int, selLeg: Int)
     @JvmStatic external fun nativeLegenda(texto: String, durMs: Int)
     @JvmStatic external fun nativePos(ms: Long, bufferFimMs: Long, live: Boolean,
@@ -2286,7 +2286,7 @@ object NvPlayer {
 
         val sig = StringBuilder()
         for ((g, i) in a) sig.append('a').append(g.getTrackFormat(i).id).append(g.getTrackFormat(i).language).append(';')
-        for ((g, i) in l) sig.append('l').append(g.getTrackFormat(i).id).append(g.getTrackFormat(i).language).append(';')
+        for ((g, i) in l) sig.append('l').append(g.getTrackFormat(i).id).append(g.getTrackFormat(i).language).append(g.getTrackFormat(i).sampleMimeType).append(';')
         val nova = sig.toString()
         if (nova == assinatura) return
         val tinhaLegenda = legendas.isNotEmpty()
@@ -2307,13 +2307,13 @@ object NvPlayer {
                 val (g, i) = par
                 if (sel < 0 && g.isTrackSelected(i)) sel = n
                 val fmt = g.getTrackFormat(i)
-                nativeFaixa(0, n, fmt.language ?: "", 0, "", fmt.sampleMimeType ?: "", fmt.channelCount.coerceAtLeast(0))
+                nativeFaixa(0, n, fmt.language ?: "", 0, "", fmt.sampleMimeType ?: "", fmt.channelCount.coerceAtLeast(0), -1)
             }
             for ((n, par) in l.withIndex()) {
                 val f = par.first.getTrackFormat(par.second)
                 val flags = (if (f.selectionFlags and C.SELECTION_FLAG_FORCED != 0) 1 else 0) or
                     (if (f.roleFlags and C.ROLE_FLAG_DESCRIBES_MUSIC_AND_SOUND != 0) 2 else 0)
-                nativeFaixa(1, n, f.language ?: "", flags, f.label ?: "", "", 0)
+                nativeFaixa(1, n, f.language ?: "", flags, f.label ?: "", f.sampleMimeType ?: "", 0, f.id?.toIntOrNull() ?: -1)
             }
             nativeFaixasFim(sel, -1)
         } catch (e: UnsatisfiedLinkError) { Log.w(TAG, "faixas sem lib: $e") }

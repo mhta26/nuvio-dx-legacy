@@ -53,12 +53,16 @@ for u in https://github.com/libsdl-org/SDL/releases/download/release-2.30.9/SDL2
   [ -d "$d" ] || curl -fsSL "$u" | tar xz -C "$CACHE/src"
 done
 
+# Build and package libass by default for both Android TV and Mobile.
+bash tools/android/ass.sh arm64-v8a armeabi-v7a
+
 echo "[2/5] arte e fontes -> $EST/assets"
 rm -rf "$EST/assets"; mkdir -p "$EST/assets"
 NUVIO_ARTE_ESTAGIO="build/android/assets/art" bash tools/tizen-art.sh >/dev/null
 mkdir -p "$EST/assets/fonts"
 cp deploy/app/fonts/* "$EST/assets/fonts/"
 mkdir -p "$EST/assets/licencas"
+cp "$CACHE/ass-prefix/arm64-v8a/licenses/"* "$EST/assets/licencas/"
 cp deploy/app/licencas/* "$EST/assets/licencas/"   # avisos do motor P2P (libtorrent, Boost, OpenSSL, nuvio-engine)
 
 echo "[3/5] chaves (-D) e libs nativas"
@@ -94,7 +98,7 @@ echo "[4/5] gradle"
 export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$ANDROID_HOME/ndk/27.2.12479018}"
 FFMPEG_AAR="$EST/media3-ffmpeg-16kb.aar"
 bash tools/android/ffmpeg-android.sh "$FFMPEG_AAR" arm64-v8a armeabi-v7a
-GR=(android/gradlew -p android --console=plain -Pnuvio.sdlSrc="$CACHE/src" -Pnuvio.estagio="$EST" -Pnuvio.ffmpegAar="$FFMPEG_AAR")
+GR=(android/gradlew -p android --console=plain -Pnuvio.sdlSrc="$CACHE/src" -Pnuvio.assRoot="$CACHE/ass-prefix" -Pnuvio.estagio="$EST" -Pnuvio.ffmpegAar="$FFMPEG_AAR")
 [ "${NUVIO_ANDROID_OFFLINE:-0}" != 1 ] || GR+=(--offline)
 # Motor P2P embutido: pasta achada por tools/p2p-motor/pasta.sh (NUVIO_P2P_MOTOR,
 # ou a pasta padrao); configurada e incompleta = erro, nunca pacote sem motor calado.

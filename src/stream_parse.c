@@ -2,6 +2,7 @@
 #include "mediaurl.h"
 #include "badges.h"
 #include "js.h"
+#include "linguas.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -730,6 +731,37 @@ static void faixasCampoTexto(const char *obj, const char *fim, const char *campo
   if (!s->audioIdiomas[0]) memcpy(s->audioIdiomas, audio, sizeof audio);
   if (!s->legendaIdiomas[0]) memcpy(s->legendaIdiomas, subs, sizeof subs);
 }
+// Only structured media tracks establish embedded language AND codec. External
+// stream.subtitles, release names and separate language/codec lists do not.
+static int assArabeDeclarada(const char *parsed) {
+  if (!parsed) return 0;
+  const char *fim = js_fim(parsed), *tracks = valorRaiz(parsed, fim, "subtitleTracks");
+  char quality[24] = "";
+  js_texto_raiz(parsed, "mediaInfoQuality", quality, sizeof quality);
+  if (strcmp(quality, "probe") && strcmp(quality, "indexer")) return 0;
+  if (!tracks || *tracks != '[') return 0;
+  const char *end = js_fim(tracks), *p = tracks + 1;
+  while (p < end) {
+    while (p < end && (isspace((unsigned char)*p) || *p == ',')) p++;
+    if (p >= end || *p == ']') break;
+    const char *next = js_fim(p);
+    if (!next || next <= p || next > end) break;
+    if (*p == '{') {
+      char lang[48] = "", codec[48] = "";
+      js_texto_raiz(p, "lang", lang, sizeof lang);
+      js_texto_raiz(p, "codec", codec, sizeof codec);
+      if ((!strcasecmp(lang, "Arabic") || !strcasecmp(lang, "ar") || !strcasecmp(lang, "ara") ||
+           !strncasecmp(lang, "ar-", 3)) &&
+          (!strcasecmp(codec, "ass") || !strcasecmp(codec, "ssa") ||
+           !strcasecmp(codec, "S_TEXT/ASS") || !strcasecmp(codec, "S_TEXT/SSA"))) return 1;
+    }
+    p = next;
+  }
+  return 0;
+}
+int stream_prefere_ass_arabe(const Stream *s, int anime, const char *idioma) {
+  return s && anime && idioma && ling_casa(idioma, "ar") && s->assArabeEmbutida;
+}
 static void metadadosFaixas(const char *obj, const char *fim, Stream *s) {
   const char *cr = objetoRaiz(obj, fim, "clientResolve");
   const char *st = cr ? objetoRaiz(cr, js_fim(cr), "stream") : NULL;
@@ -759,6 +791,7 @@ static void metadadosFaixas(const char *obj, const char *fim, Stream *s) {
       faixasCampo(tracks, tf, "subtitle", s->legendaIdiomas, sizeof s->legendaIdiomas, 1);
     }
   }
+  s->assArabeEmbutida = assArabeDeclarada(parsedFile) || assArabeDeclarada(parsed);
   // AIOStreams separa explicitamente languages (audio) de subtitles no
   // ParsedFile. So estes caminhos documentados autorizam o nome generico.
   // https://github.com/Viren070/AIOStreams/blob/main/packages/core/src/db/schemas.ts

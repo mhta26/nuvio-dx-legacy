@@ -295,3 +295,17 @@ int faixasmkv_acrescentar_imagem(VideoFaixa *leg, int nLeg, int max, const MkvFa
 int faixasmkv_acrescentar_texto(VideoFaixa *leg, int nLeg, int max, const MkvFaixa *fx, int n) {
   return acrescentarOverlay(leg, nLeg, max, fx, n, 1);
 }
+
+int faixasmkv_por_numero(VideoFaixa *leg, int numero, const MkvFaixa *fx, int n) {
+  int ordinal = 0;
+  if (!leg || numero <= 0 || !fx) return 0;
+  for (int i = 0; i < n; i++) if (fx[i].tipo == 17) {
+    if (fx[i].numero == numero) {
+      leg->ordinalMkv = ordinal;
+      snprintf(leg->codec, sizeof leg->codec, "%s", fx[i].codec);
+      return 1;
+    }
+    ordinal++;
+  }
+  return 0;
+}

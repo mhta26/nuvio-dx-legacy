@@ -56,6 +56,7 @@ typedef struct Stream {
   // Legendas anexadas pelo addon tambem contam, sem afirmar que sao embutidas.
   char audioIdiomas[512];
   char legendaIdiomas[512];
+  int assArabeEmbutida; // AIOStreams probed/indexer track: Arabic + ASS/SSA on the SAME track
   // Metadados canonicos para as exclusoes compartilhadas. Independentes dos
   // badges importados e do tamanho exato exigido pelo StreamFit.
   FonteFiltroDados filtro;
@@ -149,6 +150,8 @@ void stream_filtro_dados(const Stream *fonte, FonteFiltroDados *saida);
 // Capture the requested resource type before publishing its sources. Filters
 // apply only to movie/series; this scope survives resolution and failover.
 void stream_filtro_tipo(const char *tipo);
+void stream_preferencia_anime(int anime);
+int stream_prefere_ass_arabe(const Stream *s, int anime, const char *idioma);
 void stream_filtro_atualizar(void);
 int stream_filtro_permite(const Stream *fonte);
 int stream_filtro_bloqueou(void);

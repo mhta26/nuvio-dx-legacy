@@ -161,6 +161,8 @@ static void cancelarConferenciasSemTrava(void);
 static int atual = -1, recarregar;
 static _Atomic int canalFolha;
 static _Atomic int pedidoVod = 1;
+static _Atomic int preferenciaAnime;
+void stream_preferencia_anime(int anime) { preferenciaAnime = !!anime; }
 static int filtrosVod(void) { return pedidoVod && !canalFolha; }
 void stream_filtro_tipo(const char *tipo) {
   pedidoVod = nv_tipo_vod(tipo && tipo[0] ? tipo : "movie");
@@ -1363,6 +1365,14 @@ static long pontosDoAlvo(const Stream *s, const char *alvo) {
   { unsigned k;
     for (k = 0; k < N_REGRAS_VIDAA; k++)
       if (REGRAS_VIDAA[k].bate(s)) p += REGRAS_VIDAA[k].pontos;
+  }
+#endif
+#ifdef NV_ANDROID
+  // Keep the quality band, cache, compatibility and safety penalties intact.
+  // "First source" remains addon order; this affects Best source scoring only.
+  if (stream_prefere_ass_arabe(s, preferenciaAnime, ling_legenda())) {
+    long ceiling = (long)floor((double)p / 10000.0) * 10000 + 9999;
+    p = p + 1500 < ceiling ? p + 1500 : ceiling;
   }
 #endif
   p -= multasDeAlvo(s, alvo);

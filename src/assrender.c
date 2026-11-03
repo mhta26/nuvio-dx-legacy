@@ -260,7 +260,11 @@ static void ass_mensagem(int nivel, const char *fmt, va_list args, void *dados) 
  * logo depois do ass_clear_fonts — o caro fica no caso raro. */
 typedef struct { char nome[96]; size_t tam; unsigned long long amostra; } AssFonteVista;
 #define ASS_FONTES_MAX 192
+#ifdef NV_ANDROID
+#define ASS_FONTES_TETO_BYTES (32u * 1024u * 1024u)
+#else
 #define ASS_FONTES_TETO_BYTES (96u * 1024u * 1024u)
+#endif
 static AssFonteVista assFontesVistas[ASS_FONTES_MAX];
 static int assNFontesVistas;
 static size_t assBytesFontesVistas;
@@ -492,7 +496,7 @@ static void ass_iniciar_locked(int sistema) {
     assrender_pasta_fontes_app(base, 0, assPastaFontesApp, sizeof assPastaFontesApp);
 #endif
     if (base) SDL_free(base);
-#ifdef NV_TPK
+#if defined(NV_TPK) || defined(NV_ANDROID)
     if (fontDir[0] && strstr(fontDir, "/../fonts")) snprintf(assPastaFontesApp, sizeof assPastaFontesApp, "%s", fontDir);
 #endif
   }
@@ -507,7 +511,11 @@ static void ass_iniciar_locked(int sistema) {
   snprintf(assFallbackFont, sizeof assFallbackFont, "%s", fallbackFont);
   ass_aplicar_fontes_locked();
   assNFontesVistas = 0; assBytesFontesVistas = 0;
+#ifdef NV_ANDROID
+  ass_set_cache_limits(assRenderer, 0, 16); // MiB of bitmaps; keep TV memory bounded
+#else
   ass_set_cache_limits(assRenderer, 0, 32);
+#endif
   assFrameW = 1920; assFrameH = 1080;
   ass_set_frame_size(assRenderer, assFrameW, assFrameH);
   ass_set_storage_size(assRenderer, assFrameW, assFrameH);

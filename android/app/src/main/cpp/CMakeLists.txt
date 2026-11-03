@@ -1,10 +1,18 @@
 # Nucleo C do Nuvio no Android: libmain.so (o nome que o SDLActivity carrega).
 #   libSDL2.so   compartilhada (o SDLActivity a carrega antes do main)
 #   SDL2_image   estatica, so stb + WebP (libwebp 1.4.0 compilada daqui)
-#   SDL2_ttf     estatica, freetype embutido (external/freetype do tarball)
+#   SDL2_ttf     static, FreeType shared with libass
 # Os fontes vem de ~/.cache/nuvio-android/src (tools/android.sh baixa).
 cmake_minimum_required(VERSION 3.22)
-project(nuvio C)
+project(nuvio C CXX)
+
+set(NUVIO_ASS_ROOT "" CACHE PATH "Android libass prefix root (<abi>/lib)")
+set(ASS_PREFIX "${NUVIO_ASS_ROOT}/${ANDROID_ABI}")
+foreach(lib ass harfbuzz fribidi freetype)
+  if(NOT EXISTS "${ASS_PREFIX}/lib/lib${lib}.a")
+    message(FATAL_ERROR "Missing lib${lib}.a: run tools/android/ass.sh and set NUVIO_ASS_ROOT")
+  endif()
+endforeach()
 
 set(NUVIO_RAIZ "" CACHE PATH "raiz do repositorio")
 set(NUVIO_SDL_SRC "$ENV{HOME}/.cache/nuvio-android/src" CACHE PATH "fontes do SDL")
@@ -94,8 +102,12 @@ target_compile_definitions(SDL2_image PRIVATE
 target_link_libraries(SDL2_image PRIVATE SDL2::SDL2 webpdemux webp)
 target_compile_options(SDL2_image PRIVATE -w)
 
-# ---- SDL2_ttf: freetype embutido, sem harfbuzz ----
-set(SDL2TTF_VENDORED ON CACHE BOOL "" FORCE)
+# ---- SDL2_ttf: one static FreeType, no UI HarfBuzz ----
+# Share one FreeType with libass, rather than linking two copies of FT_*.
+set(SDL2TTF_VENDORED OFF CACHE BOOL "" FORCE)
+set(FREETYPE_LIBRARY "${ASS_PREFIX}/lib/libfreetype.a" CACHE FILEPATH "" FORCE)
+set(FREETYPE_INCLUDE_DIR_freetype2 "${ASS_PREFIX}/include/freetype2" CACHE PATH "" FORCE)
+set(FREETYPE_INCLUDE_DIR_ft2build "${ASS_PREFIX}/include/freetype2" CACHE PATH "" FORCE)
 set(SDL2TTF_HARFBUZZ OFF CACHE BOOL "" FORCE)
 set(SDL2TTF_INSTALL OFF CACHE BOOL "" FORCE)
 set(SDL2TTF_SAMPLES OFF CACHE BOOL "" FORCE)
@@ -113,7 +125,11 @@ file(GLOB NUVIO_SRC CONFIGURE_DEPENDS "${NUVIO_RAIZ}/src/*.c" "${NUVIO_RAIZ}/src
 list(FILTER NUVIO_SRC EXCLUDE REGEX "/(video_tizen|video_tpk|tpk)\\.c$")
 add_library(main SHARED ${NUVIO_SRC})
 target_include_directories(main PRIVATE "${NUVIO_RAIZ}/src" "${CMAKE_BINARY_DIR}/inc")
-target_compile_definitions(main PRIVATE NV_ANDROID NV_TOUCH_UI)
+target_compile_definitions(main PRIVATE NV_ANDROID NV_TOUCH_UI NV_ASS_LIBASS)
+target_include_directories(main PRIVATE "${ASS_PREFIX}/include")
+set_target_properties(main PROPERTIES LINKER_LANGUAGE CXX)
+target_link_libraries(main PRIVATE "${ASS_PREFIX}/lib/libass.a" "${ASS_PREFIX}/lib/libharfbuzz.a"
+  "${ASS_PREFIX}/lib/libfribidi.a" "${ASS_PREFIX}/lib/libfreetype.a")
 option(NV_APK_LITE "Build Lite APK updater identity" OFF)
 if(NV_APK_LITE)
   target_compile_definitions(main PRIVATE NV_APK_LITE)

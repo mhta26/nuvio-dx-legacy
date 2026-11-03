@@ -40,6 +40,7 @@ android {
                     "-DANDROID_STL=c++_static",  // hidapi do SDL (hid.cpp) e C++
                     "-DNUVIO_RAIZ=$raiz",
                     "-DNUVIO_SDL_SRC=$sdlSrc",
+                    "-DNUVIO_ASS_ROOT=${(findProperty("nuvio.assRoot") as String?) ?: "$cache/ass-prefix"}",
                     "-DNUVIO_ENV_CMAKE=$estagio/nuvio-env.cmake",
                     "-DNUVIO_P2P_MOTOR=${(findProperty("nuvio.p2pMotor") as String?) ?: ""}",
                     "-DNUVIO_RUST_MKVCORE=${(findProperty("nuvio.rustMkvcore") as String?) ?: ""}",

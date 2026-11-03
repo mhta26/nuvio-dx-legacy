@@ -29,6 +29,10 @@
 int faixasmkv_aplicar(VideoFaixa *aud, int nAud, VideoFaixa *leg, int nLeg,
                       const MkvFaixa *fx, int n);
 
+// Exact Matroska TrackNumber from Media3 Format.id. Never guess from filtered
+// indices: unsupported text/image tracks may be absent from the player list.
+int faixasmkv_por_numero(VideoFaixa *leg, int numero, const MkvFaixa *fx, int n);
+
 // Fallback de listas diferentes: apenas idiomas unicos, indices em fx ou -1.
 int faixasmkv_legendas_por_idioma(const VideoFaixa *leg, int nLeg,
                                  const MkvFaixa *fx, int n, int *mapa);

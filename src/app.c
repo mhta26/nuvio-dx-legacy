@@ -1145,6 +1145,7 @@ static void fitPassivaPermitir(void) {
 }
 
 static void origemFontes(const CatItem *c) {
+  stream_preferencia_anime(c && artehero_eh_anime(c));
   char base[NV_ADDON_URL_MAX] = "";
   if (c && !idbase_e_imdb(c->imdb))
     addons_base_por_id_copiar(c->origem, base, sizeof base);
